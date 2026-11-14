@@ -1,76 +1,67 @@
-# Part 2 — Frequency-Informed PCA rPPG Extraction
+# rPPG Signal Processing
 
-This package implements **Part 2** of the camera-based heart-rate monitoring project: it takes per-frame RGB skin-region signals from Part 1, applies PCA, chooses a component using frequency-informed scoring, bandpass-filters it, and exports a one-dimensional rPPG signal for Part 3.
+This module implements the signal-processing stages of a non-contact heart-rate monitoring system using facial videos.
+
+It processes normalized facial RGB signals, extracts a representative rPPG waveform using Principal Component Analysis (PCA), and estimates heart rate using frequency-domain analysis.
+
+## Processing Pipeline
+
+1. **RGB Preprocessing:** Normalizes RGB signals extracted from the forehead region.
+2. **PCA:** Applies Principal Component Analysis to the RGB signals.
+3. **rPPG Extraction:** Selects the first principal component (PC1) as the representative rPPG signal.
+4. **Heart Rate Estimation:** Uses Welch's Power Spectral Density (PSD) method to identify the dominant frequency and calculate heart rate.
 
 ## Files
 
-- `pca_rppg.py` — main processing module and command-line interface.
-- `requirements.txt` — Python dependencies.
-- `examples/sample_rgb_signals.csv` — clearly labelled synthetic input for a smoke test; it is not real camera data.
-- `tests/test_pca_rppg.py` — basic automated tests.
+- `prepare_forehead_chrominance.py` – Prepares normalized forehead RGB signals.
+- `pca_rppg.py` – Extracts the rPPG signal using PCA.
+- `estimate_hr_now.py` – Estimates heart rate from the extracted rPPG signal.
+- `heart_rate_estimator.py` – Heart-rate estimation functionality.
 
-## Input contract from Part 1
+## Running the Module
 
-CSV columns required:
-
-| Column | Meaning |
-|---|---|
-| `timestamp_s` | Timestamp in seconds for each video frame |
-| `red`, `green`, `blue` | Mean RGB values for the tracked skin region(s) |
-| `valid` | Optional boolean-like flag; false rows are ignored |
-
-RGB values may be raw 0–255 values or normalized values, provided each channel uses a consistent scale throughout the recording. The code estimates the sampling rate from timestamps unless `--fs` is provided. The input should represent one continuous recording; large gaps are interpolated, so inspect timestamp gaps and validity in the upstream module.
-
-## Run
-
-From this folder:
+Run the following commands from the project root directory:
 
 ```bash
-python -m pip install -r requirements.txt
-python pca_rppg.py examples/sample_rgb_signals.csv --output-dir output
+python rppg_processing/prepare_forehead_chrominance.py
+
+python rppg_processing/pca_rppg.py rppg_processing/input/rgb_forehead_chrominance.csv --output-dir rppg_processing/output/forehead_chrominance
+
+python rppg_processing/estimate_hr_now.py
 ```
 
-For real Part 1 output:
+Alternatively, execute the complete project using:
 
 ```bash
-python pca_rppg.py path/to/rgb_signals.csv --output-dir output
+python run_pipeline.py
 ```
 
-Optional parameters:
+## Output Files
 
-```bash
-python pca_rppg.py rgb_signals.csv --output-dir output --low-bpm 42 --high-bpm 180
-python pca_rppg.py rgb_signals.csv --output-dir output --fs 30
-```
+The processing pipeline generates:
 
-The high cutoff must be below the Nyquist frequency (half the sampling rate). At 30 frames/second, 180 BPM (3 Hz) is below the 15 Hz Nyquist limit.
+- `rgb_forehead_chrominance.csv` – Preprocessed forehead RGB signals.
+- `processed_rppg.csv` – Extracted one-dimensional rPPG waveform.
+- `component_scores.csv` – PCA component information.
+- `metadata.json` – Processing metadata.
 
-## Outputs
+## Heart Rate Estimation
 
-- `processed_rppg.csv`: `timestamp_s`, normalized `rppg`, `valid`. This is the primary output for Part 3.
-- `component_scores.csv`: score, peak frequency/BPM, in-band spectral peak ratio, autocorrelation support, explained variance, and selected flag for PC1–PC3.
-- `metadata.json`: sampling rate, filter bounds, selected component, score rule, and run details.
+Welch's Power Spectral Density method estimates the dominant frequency of the extracted rPPG signal.
 
-## Method
+Heart rate is calculated as:
 
-1. Validate required columns and remove invalid RGB/timestamp rows.
-2. Estimate sampling rate from the median positive timestamp difference, unless explicitly overridden.
-3. Resample RGB channels onto a uniform time grid.
-4. Linearly detrend and standardize the RGB channels.
-5. Compute three PCA components using singular-value decomposition.
-6. Bandpass-filter each component in the configured heart-rate band (default 42–180 BPM).
-7. Score each component using `log(peak PSD / median in-band PSD) + max(0, autocorrelation at the peak period)` and select the highest-scoring component.
-8. Normalize the selected filtered component and export it.
+\[
+HR = 60 \times f
+\]
 
-The method intentionally does **not** select PC1 automatically. PCA variance alone does not establish which component contains pulse.
+where \(f\) is the dominant frequency in Hz.
 
-## Important limitations
+The current implementation searches within a predefined range of 85–110 BPM, selected for the sample recording.
 
-This is an initial engineering heuristic, not a clinically validated heart-rate estimator. A periodic head movement, expression change, or lighting fluctuation can also produce a strong spectral peak. Part 3 should report its own confidence/quality checks, and the complete system should be evaluated against reference heart-rate measurements. The included synthetic example only checks that the code runs; it does not validate extraction from real faces.
+## Limitations
 
-## Test
-
-```bash
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
-```
+- PCA does not guarantee that PC1 contains only pulse-related information.
+- Lighting variations and facial movements can affect signal quality.
+- The current heart-rate search range limits general applicability.
+- Further validation using multiple recordings and reference measurements is required.
