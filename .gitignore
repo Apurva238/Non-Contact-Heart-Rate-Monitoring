@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment variables / secrets
+.env
+.env.*
+
+# Raw input data
+s1_sit.csv
+Video_processing/data/subject1/vid.mp4
+Video_processing/data/subject1/ground_truth.txt
+
+# Generated outputs
+full_pipeline_output/
+Video_processing/output/
+Video_processing/skin_mask_diagnostics/
+rppg_processing/input/
+rppg_processing/output/
+
+# Debug images
+Video_processing/frame_*.jpg
