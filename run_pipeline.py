@@ -1,71 +1,158 @@
+from pathlib import Path
+import json
 import subprocess
 import sys
-from pathlib import Path
+import numpy as np
 
-# Project root directory
+from ppg_pipeline import generate_ppg_with_noise
+
+
 ROOT = Path(__file__).resolve().parent
 
-# Pipeline steps
-steps = [
-    {
-        "name": "Extracting facial RGB signals",
-        "command": [
-            "Video_processing/video_rgb_extractor.py"
-        ]
-    },
-    {
-        "name": "Preparing forehead chrominance signals",
-        "command": [
-            "rppg_processing/prepare_forehead_chrominance.py"
-        ]
-    },
-    {
-        "name": "Applying PCA-based rPPG processing",
-        "command": [
-            "rppg_processing/pca_rppg.py",
-            "rppg_processing/input/rgb_forehead_chrominance.csv",
-            "--output-dir",
-            "rppg_processing/output/forehead_chrominance"
-        ]
-    },
-    {
-        "name": "Estimating heart rate",
-        "command": [
-            "rppg_processing/estimate_hr_now.py"
-        ]
-    }
-]
+
+def run_script(name, script, *args):
+    print(f"\n{name}")
+    print("-" * 50)
+
+    subprocess.run(
+        [sys.executable, str(ROOT / script), *map(str, args)],
+        cwd=ROOT,
+        check=True
+    )
+
+    print(f"\nCompleted: {name}")
+
 
 def main():
+
     print("\n========================================")
-    print("  NON-CONTACT HEART RATE MONITORING")
+    print("     COMPLETE LSSP PROJECT PIPELINE")
     print("========================================")
+
+    # ==========================================
+    # PART 1: SYNTHETIC PPG GENERATION
+    # ==========================================
+
+    print("\n========== PART 1: SYNTHETIC PPG ==========")
+
+    heart_rate = 75
+    sampling_frequency = 100
+    duration = 10
+
+    output_dir = ROOT / "full_pipeline_output"
+    output_dir.mkdir(exist_ok=True)
+
+    print("\n[1/7] Generating clean and noisy PPG signals")
+
+    time_array, signals, metadata = generate_ppg_with_noise(
+        heart_rate=heart_rate,
+        sampling_frequency=sampling_frequency,
+        duration=duration
+    )
+
+    np.savetxt(
+        output_dir / "clean_ppg.csv",
+        np.column_stack((time_array, signals["clean"])),
+        delimiter=",",
+        header="time,clean_ppg",
+        comments=""
+    )
+
+    np.savetxt(
+        output_dir / "noisy_ppg.csv",
+        np.column_stack((time_array, signals["combined"])),
+        delimiter=",",
+        header="time,noisy_ppg",
+        comments=""
+    )
+
+    with open(output_dir / "metadata.json", "w") as file:
+        json.dump(metadata, file, indent=4)
+
+    print("Clean and noisy PPG signals generated successfully.")
+
+    # ==========================================
+    # PART 2: VISUALIZATION AND VALIDATION
+    # ==========================================
+
+    print("\n[2/7] Visualizing and validating PPG signals")
+
+    run_script(
+        "PPG Visualization and Validation",
+        "visualization_validation.py",
+        "--clean", output_dir / "clean_ppg.csv",
+        "--noisy", output_dir / "noisy_ppg.csv",
+        "--metadata", output_dir / "metadata.json",
+        "--fs", sampling_frequency,
+        "--outdir", output_dir / "visualization_results"
+    )
+
+    # ==========================================
+    # PART 3: VIDEO-BASED HEART RATE ESTIMATION
+    # ==========================================
+
+    print("\n========== PART 2: VIDEO-BASED rPPG ==========")
 
     video = ROOT / "Video_processing/data/subject1/vid.mp4"
 
     if not video.exists():
-        print("\nERROR: Input video not found!")
-        print(f"Expected location: {video}")
-        return
+        raise FileNotFoundError(
+            f"Input video not found: {video}"
+        )
 
-    for index, step in enumerate(steps, start=1):
-        print(f"\n[{index}/{len(steps)}] {step['name']}")
-        print("-" * 45)
+    # Step 3: RGB extraction
+    print("\n[3/7] Extracting facial RGB signals")
 
-        command = [sys.executable] + step["command"]
+    run_script(
+        "Facial RGB Extraction",
+        "Video_processing/video_rgb_extractor.py"
+    )
 
-        try:
-            subprocess.run(command, cwd=ROOT, check=True)
-            print(f"\nCompleted: {step['name']}")
+    # Step 4: Chrominance preprocessing
+    print("\n[4/7] Preparing forehead chrominance signals")
 
-        except subprocess.CalledProcessError:
-            print(f"\nERROR: Pipeline stopped at step {index}.")
-            return
+    run_script(
+        "Forehead Chrominance Preprocessing",
+        "rppg_processing/prepare_forehead_chrominance.py"
+    )
+
+    # Step 5: PCA processing
+    print("\n[5/7] Applying PCA-based rPPG processing")
+
+    run_script(
+        "PCA-based rPPG Extraction",
+        "rppg_processing/pca_rppg.py",
+        "rppg_processing/input/rgb_forehead_chrominance.csv",
+        "--output-dir",
+        "rppg_processing/output/forehead_chrominance"
+    )
+
+    # Step 6: Heart rate estimation
+    print("\n[6/7] Estimating heart rate")
+
+    run_script(
+        "Heart Rate Estimation",
+        "rppg_processing/estimate_hr_now.py"
+    )
+
+    # ==========================================
+    # COMPLETION
+    # ==========================================
 
     print("\n========================================")
-    print("       PIPELINE COMPLETED!")
+    print("       COMPLETE PIPELINE FINISHED!")
     print("========================================")
+
+    print("\nGenerated results:")
+    print("- Synthetic PPG: full_pipeline_output/")
+    print("- Video RGB: Video_processing/output/")
+    print("- Processed rPPG: rppg_processing/output/")
+    print("- Final heart-rate estimate: displayed above")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        print(f"\nPIPELINE FAILED: {error}")
+        sys.exit(1)
